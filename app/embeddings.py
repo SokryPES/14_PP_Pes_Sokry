@@ -1,25 +1,22 @@
 """
-One function, one job: turn text into vectors using the local Ollama
-embedding model. nomic-embed-text
-Both ingestion (embedding chunks) and retrieval
-(embedding the user's question) call this, so the two are guaranteed
-to use the same model and never drift apart.
+Handles text embedding using the local Ollama embedding model.
+Both document chunking (ingestion) and query processing (retrieval) 
+rely on this module to ensure vector representation stays consistent.
 """
+
 from typing import List
-
 import ollama
-
 from app.config import EMBED_MODEL
 
 
 def embed_texts(texts: List[str]) -> List[List[float]]:
-    """Embed a batch of strings. Returns one vector per input string, same order."""
+    """Generates embedding vectors for a batch of input strings."""
     if not texts:
         return []
     response = ollama.embed(model=EMBED_MODEL, input=texts)
-    return list(response.embeddings) # type:ignore
+    return list(response.embeddings)
 
 
 def embed_query(text: str) -> List[float]:
-    """Convenience wrapper for embedding a single piece of text (e.g. a question)."""
+    """Helper function to embed a single text query or user question."""
     return embed_texts([text])[0]

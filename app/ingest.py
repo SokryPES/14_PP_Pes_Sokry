@@ -1,20 +1,12 @@
 """
-Stage 1 of the pipeline: turn raw files in data/ into searchable vectors.
-
-Flow: load files -> split into chunks -> embed each chunk -> store in Chroma.
-
-Run directly to (re)build the index from scratch:
-    poetry run python -m app.ingest
+Ingestion module: loads files, splits into chunks, embeds, and saves to ChromaDB.
 """
+
 import logging
 import os
 from typing import List, Tuple
-
 import chromadb
 from chromadb.config import Settings
-
-logging.getLogger("chromadb.telemetry.product.posthog").setLevel(logging.CRITICAL)
-from pypdf import PdfReader
 
 from app.config import (
     CHROMA_DB_DIR,
@@ -25,42 +17,39 @@ from app.config import (
 )
 from app.embeddings import embed_texts
 
+logging.getLogger("chromadb.telemetry.product.posthog").setLevel(logging.CRITICAL)
 
-# ---------- Loading ----------
-
-def _read_txt(path: str) -> str:
-    with open(path, "r", encoding="utf-8") as f:
-        return f.read()
+_CHROMA_SETTINGS = Settings(anonymized_telemetry=False)
 
 
-def _read_pdf(path: str) -> str:
-    reader = PdfReader(path)
-    return "\n".join(page.extract_text() or "" for page in reader.pages)
+def get_collection():
+    """Returns the persistent ChromaDB collection."""
+    client = chromadb.PersistentClient(path=CHROMA_DB_DIR, settings=_CHROMA_SETTINGS)
+    return client.get_or_create_collection(name=COLLECTION_NAME)
+
+
+def _read_file(path: str) -> str:
+    ext = path.lower().rsplit(".", 1)[-1]
+    if ext in ("txt", "md"):
+        with open(path, "r", encoding="utf-8") as f:
+            return f.read()
+    if ext == "pdf":
+        return "\n".join(p.extract_text() or "" for p in PdfReader(path).pages)
+    return ""
+
 
 def load_documents(data_dir: str = DATA_DIR) -> List[Tuple[str, str]]:
-    """Return a list of (filename, full_text) for every .txt/.md/.pdf file in data_dir."""
-    documents = []
-    for filename in sorted(os.listdir(data_dir)):
-        path = os.path.join(data_dir, filename)
-        if not os.path.isfile(path):
-            continue
-        ext = filename.lower().rsplit(".", 1)[-1]
-        if ext in ("txt", "md"):
-            text = _read_txt(path)
-        elif ext == "pdf":
-            text = _read_pdf(path)
-        else:
-            continue  # skip anything we don't know how to read
-        if text.strip():
-            documents.append((filename, text))
-    return documents
+    docs = []
+    for fname in sorted(os.listdir(data_dir)):
+        fpath = os.path.join(data_dir, fname)
+        if os.path.isfile(fpath):
+            text = _read_file(fpath)
+            if text.strip():
+                docs.append((fname, text))
+    return docs
 
 
-# ---------- Chunking ----------
 def chunk_text(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP) -> List[str]:
-    """
-    Fixed-size chunking with overlap.
-    """
     text = text.strip()
     if not text:
         return []
@@ -71,47 +60,38 @@ def chunk_text(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVE
         chunks.append(text[start:end])
         if end >= len(text):
             break
-        start = end - overlap  # step back so consecutive chunks share context
+        start = end - overlap
     return chunks
 
 
-# ---------- Indexing ----------
-_CHROMA_SETTINGS = Settings(anonymized_telemetry=False)
-
-
-def get_collection():
-    client = chromadb.PersistentClient(path=CHROMA_DB_DIR, settings=_CHROMA_SETTINGS)
-    return client.get_or_create_collection(name=COLLECTION_NAME)
-
-
 def build_index(data_dir: str = DATA_DIR) -> int:
-    """
-    Wipe and rebuild the collection from scratch from whatever is in data_dir.
-    Returns the number of chunks indexed.
-    """
     client = chromadb.PersistentClient(path=CHROMA_DB_DIR, settings=_CHROMA_SETTINGS)
     try:
         client.delete_collection(COLLECTION_NAME)
     except Exception:
-        pass  # collection didn't exist yet — that's fine
-    collection = client.get_or_create_collection(name=COLLECTION_NAME)
+        pass
 
-    documents = load_documents(data_dir)
-    if not documents:
-        raise FileNotFoundError(f"No .txt/.md/.pdf files found in '{data_dir}/'")
+    collection = client.get_or_create_collection(name=COLLECTION_NAME)
+    docs = load_documents(data_dir)
+    if not docs:
+        raise FileNotFoundError(f"No valid files found in '{data_dir}/'")
 
     ids, texts, metadatas = [], [], []
-    for filename, full_text in documents:
+    for fname, full_text in docs:
         for i, chunk in enumerate(chunk_text(full_text)):
-            ids.append(f"{filename}::{i}")
+            ids.append(f"{fname}::{i}")
             texts.append(chunk)
-            metadatas.append({"source": filename, "chunk_index": i})
+            metadatas.append({"source": fname, "chunk_index": i})
 
-    embeddings = embed_texts(texts)
-    collection.add(ids=ids, documents=texts, embeddings=embeddings, metadatas=metadatas) #type: ignore
+    collection.add(
+        ids=ids,
+        documents=texts,
+        embeddings=embed_texts(texts),
+        metadatas=metadatas
+    )
     return len(texts)
 
 
 if __name__ == "__main__":
     count = build_index()
-    print(f"Indexed {count} chunks from '{DATA_DIR}/' into Chroma at '{CHROMA_DB_DIR}/'.")
+    print(f"Indexed {count} chunks into ChromaDB.")

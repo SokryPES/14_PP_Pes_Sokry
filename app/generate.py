@@ -1,9 +1,9 @@
 """
-Stage 3 of the pipeline: turn (question + retrieved chunks) into a grounded
-answer by handing it all to the local LLM.
+Generation module: Constructs the prompt from query + retrieved chunks 
+and requests a grounded answer from the local Ollama LLM.
 """
-from typing import List
 
+from typing import List
 import ollama
 
 from app.config import GEN_MODEL, SYSTEM_PROMPT
@@ -11,13 +11,9 @@ from app.retrieval import RetrievedChunk
 
 
 def build_prompt(query: str, chunks: List[RetrievedChunk]) -> str:
-    """
-    This is the 'prompt-augmentation' step: we hand-assemble a prompt that
-    contains only the retrieved context, numbered so the model (and students,
-    reading the logs) can see exactly what it was given to work with.
-    """
+    """Formats the retrieved context chunks and user question into a single prompt."""
     if not chunks:
-        context_block = "(no relevant context was found)"
+        context_block = "(no relevant context found)"
     else:
         context_block = "\n\n".join(
             f"[{i+1}] Source: {c['source']}\n{c['text']}"
@@ -32,6 +28,7 @@ def build_prompt(query: str, chunks: List[RetrievedChunk]) -> str:
 
 
 def generate_answer(query: str, chunks: List[RetrievedChunk]) -> str:
+    """Sends the formatted prompt to Ollama and returns the generated answer."""
     prompt = build_prompt(query, chunks)
     response = ollama.chat(
         model=GEN_MODEL,
@@ -40,4 +37,4 @@ def generate_answer(query: str, chunks: List[RetrievedChunk]) -> str:
             {"role": "user", "content": prompt},
         ],
     )
-    return response.message.content  #type:ignore
+    return response.message.content  # type: ignore
