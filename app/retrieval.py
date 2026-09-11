@@ -1,7 +1,7 @@
 """
-Stage 2 of the pipeline: given a question, find the chunks most likely to
-contain the answer.
+Retrieval module: Finds the most relevant document chunks for a given query.
 """
+
 from typing import List, TypedDict
 
 from app.config import TOP_K
@@ -17,27 +17,29 @@ class RetrievedChunk(TypedDict):
 
 
 def retrieve(query: str, top_k: int = TOP_K) -> List[RetrievedChunk]:
+    """Retrieves top_k relevant chunks from ChromaDB based on query vector similarity."""
     collection = get_collection()
-    query_embedding = embed_query(query)
+    query_vector = embed_query(query)
 
     results = collection.query(
-        query_embeddings=[query_embedding],
+        query_embeddings=[query_vector],
         n_results=top_k,
-        include=["documents", "metadatas", "distances"], #type:ignore
+        include=["documents", "metadatas", "distances"], 
     )
 
     chunks: List[RetrievedChunk] = []
-    documents = results["documents"][0]  #type:ignore
-    metadatas = results["metadatas"][0]  #type:ignore
-    distances = results["distances"][0]  #type:ignore
+    documents = results["documents"][0]  
+    metadatas = results["metadatas"][0]  
+    distances = results["distances"][0]  
 
-    for text, meta, distance in zip(documents, metadatas, distances):
+    for doc, meta, dist in zip(documents, metadatas, distances):
         chunks.append(
             {
-                "text": text,
+                "text": doc,
                 "source": meta.get("source", "unknown"),
                 "chunk_index": meta.get("chunk_index", -1),
-                "distance": distance,
-            } #type:ignore
-        ) 
+                "distance": dist,
+            }
+        )
+
     return chunks

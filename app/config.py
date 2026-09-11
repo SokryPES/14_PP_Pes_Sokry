@@ -1,11 +1,11 @@
 """
-All the knobs students can turn are collected here, in one place.
-Change a value here and the whole app picks it up — no hunting through files.
+All the settings for the app are collected here in one file.
+Updating values here automatically applies them across the entire project.
 """
 
 # --- Models (must already be pulled in Ollama: `ollama pull <name>`) ---
 EMBED_MODEL = "nomic-embed-text"
-GEN_MODEL = "llama3:8b "
+GEN_MODEL = "llama3.2"  
 
 # --- Storage ---
 DATA_DIR = "data"                  # where source documents live
@@ -13,7 +13,7 @@ CHROMA_DB_DIR = "chroma_db"        # where the vector index is persisted
 COLLECTION_NAME = "documents"
 
 # --- Chunking ---
-CHUNK_SIZE = 800     # characters per chunk (not tokens — good enough for a baseline)
+CHUNK_SIZE = 800     # characters per chunk
 CHUNK_OVERLAP = 120  # characters shared between consecutive chunks
 
 # --- Retrieval ---
